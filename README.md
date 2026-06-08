@@ -158,6 +158,11 @@ Contributions are welcome!
   ```bash
   make docker-build
   ```
+- **Validate Helm chart**:
+  ```bash
+  make validate-values-schema
+  make generate-helm-docs
+  ```
 
 ## Community & Governance
 

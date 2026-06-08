@@ -43,7 +43,7 @@ spec:
             - --metrics-addr={{ .Values.controller.metricsAddr }}
             - --probe-addr={{ .Values.controller.probeAddr }}
             {{- if .Values.controller.clusterProfileProvidersFile }}
-            - --cluster-profile-providers-file={{ .Values.controller.clusterProfileProvidersFile }}
+            - --clusterprofile-provider-file={{ .Values.controller.clusterProfileProvidersFile }}
             {{- end }}
             {{- if .Values.controller.clusterScoped }}
             - --cluster-profile-all-namespaces
@@ -229,4 +229,3 @@ spec:
       {{- if .Values.priorityClassName }}
       priorityClassName: {{ .Values.priorityClassName }}
       {{- end }}
-
