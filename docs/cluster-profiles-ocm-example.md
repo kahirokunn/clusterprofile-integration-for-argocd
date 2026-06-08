@@ -242,6 +242,15 @@ helm upgrade --install argocd argo/argo-cd \
   --create-namespace \
   --wait
 
+# TODO: Once the first Argo CD release containing
+# 6d92e177b45fcd51bde0dbc169f7f923acc9a79d is available, replace this latest
+# image override with that released version and document it as the minimum
+# supported Argo CD version for ClusterProfile exec config propagation.
+kubectl -n argocd set image statefulset/argocd-application-controller \
+  argocd-application-controller=quay.io/argoproj/argocd:latest
+kubectl -n argocd set image deployment/argocd-server \
+  argocd-server=quay.io/argoproj/argocd:latest
+
 # Install the standalone Cluster Profile Controller
 kubectl apply -k artifacts/manifests
 ```
@@ -359,6 +368,31 @@ spec:
           emptyDir: {}
       containers:
         - name: server
+          volumeMounts:
+            - name: clusterprofile-plugins
+              mountPath: /plugins'
+
+kubectl patch deploy/argocd-server --type strategic --patch '
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: install-cp-creds
+          image: quay.io/open-cluster-management/cp-creds:latest
+          command:
+            - sh
+            - -c
+            - |
+              cp /cp-creds /plugins/cp-creds
+              chmod +x /plugins/cp-creds
+          volumeMounts:
+            - name: clusterprofile-plugins
+              mountPath: /plugins
+      volumes:
+        - name: clusterprofile-plugins
+          emptyDir: {}
+      containers:
+        - name: argocd-server
           volumeMounts:
             - name: clusterprofile-plugins
               mountPath: /plugins'
