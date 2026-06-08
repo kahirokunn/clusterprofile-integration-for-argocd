@@ -6,6 +6,11 @@ IMAGE_MULTIARCH_PLATFORMS?=linux/amd64,linux/arm64
 IMAGE_TAG?=latest
 IMG ?= $(IMAGE_REPOSITORY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
+# Helm tooling settings
+DOCKER_BIN ?= docker
+HELM_DOCS_VERSION ?= v1.14.2
+current_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -78,3 +83,17 @@ image-multiarch: ## Build and push multi-arch container image.
 .PHONY: push-image
 push-image: ## Push single-arch container image.
 	docker push $(IMG)
+
+##@ Helm
+
+.PHONY: helm-lint
+helm-lint: ## Lint Helm charts.
+	helm lint install/helm-repo/*
+
+.PHONY: validate-values-schema
+validate-values-schema: ## Validate Helm values against values.schema.json.
+	@$(current_dir)/hack/validate-values-schema.sh
+
+.PHONY: generate-helm-docs
+generate-helm-docs: ## Generate Helm chart README files.
+	$(DOCKER_BIN) run --rm --volume "$(current_dir)/install/helm-repo:/helm-docs" -u $(shell id -u) docker.io/jnorwood/helm-docs:$(HELM_DOCS_VERSION)
