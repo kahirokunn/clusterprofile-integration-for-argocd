@@ -1,0 +1,12 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argocd-clusterprofile-controller.fullname" . }}
+  namespace: {{ include "argocd-clusterprofile-controller.namespace" . }}
+  labels:
+    {{- include "argocd-clusterprofile-controller.labels" . | nindent 4 }}
+rules:
+  {{- include "argocd-clusterprofile-controller.rbacRules" (dict "writeSecrets" true) | nindent 2 }}
+{{- end }}
+
