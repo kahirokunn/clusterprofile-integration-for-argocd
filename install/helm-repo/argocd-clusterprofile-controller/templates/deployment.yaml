@@ -46,9 +46,8 @@ spec:
             - --clusterprofile-provider-file={{ .Values.controller.clusterProfileProvidersFile }}
             {{- end }}
             {{- if .Values.controller.clusterScoped }}
-            - --cluster-profile-all-namespaces
-            {{- end }}
-            {{- if .Values.controller.clusterProfileNamespaces }}
+            - --cluster-profile-namespaces=*
+            {{- else if .Values.controller.clusterProfileNamespaces }}
             - --cluster-profile-namespaces={{ join "," .Values.controller.clusterProfileNamespaces }}
             {{- end }}
             {{- if .Values.controller.enableLeaderElection }}
