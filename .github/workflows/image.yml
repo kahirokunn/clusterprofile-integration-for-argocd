@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  HELM_VERSION: v3.18.3
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -35,12 +38,13 @@ jobs:
         push: false
 
   push:
-    name: Push image
+    name: Push image and chart
     if: github.repository == 'argoproj-labs/clusterprofile-integration-for-argocd' && github.event_name == 'push'
     needs: [build]
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+      id-token: write
       packages: write
     steps:
     - name: Checkout source code
@@ -58,6 +62,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Build and push container image
+      id: build-and-push
       uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
       with:
         context: .
@@ -66,3 +71,48 @@ jobs:
         tags: |
           ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd:${{ github.sha }}
           ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd:main
+    - name: Setup Helm
+      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+      with:
+        version: ${{ env.HELM_VERSION }}
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    - name: Sign main container image
+      env:
+        IMAGE_DIGEST: ${{ steps.build-and-push.outputs.digest }}
+      run: |
+        cosign sign --yes "ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd@${IMAGE_DIGEST}"
+    - name: Login to ghcr.io for Helm
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "${GITHUB_TOKEN}" | helm registry login ghcr.io \
+          --username "${GITHUB_ACTOR}" \
+          --password-stdin
+    - name: Package Helm chart
+      run: |
+        mkdir -p "${RUNNER_TEMP}/charts"
+        helm package charts/argocd-clusterprofile-controller \
+          --version 0.0.0-main \
+          --app-version main \
+          --destination "${RUNNER_TEMP}/charts"
+    - name: Push Helm chart
+      id: push-chart
+      run: |
+        push_output=$(helm push "${RUNNER_TEMP}/charts/argocd-clusterprofile-controller-0.0.0-main.tgz" \
+          oci://ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd 2>&1)
+
+        echo "${push_output}"
+
+        digest=$(awk '/Digest:/ {print $2}' <<< "${push_output}" | tail -n 1)
+        if [[ -z "${digest}" ]]; then
+          echo "::error::Could not determine Helm chart digest from helm push output."
+          exit 1
+        fi
+
+        echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+    - name: Sign Helm chart
+      env:
+        CHART_DIGEST: ${{ steps.push-chart.outputs.digest }}
+      run: |
+        cosign sign --yes "ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd/argocd-clusterprofile-controller@${CHART_DIGEST}"
