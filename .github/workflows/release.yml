@@ -13,7 +13,6 @@ env:
 jobs:
   setup-variables:
     name: Setup variables for release
-    if: github.repository == 'argoproj-labs/clusterprofile-integration-for-argocd'
     runs-on: ubuntu-22.04
     outputs:
       chart_registry: ${{ steps.var.outputs.chart_registry }}
@@ -39,8 +38,8 @@ jobs:
           fi
 
           RELEASE_VERSION="${RELEASE_TAG#v}"
-          IMAGE_NAME="ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd"
-          CHART_REGISTRY="oci://ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd"
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY}"
+          CHART_REGISTRY="oci://ghcr.io/${GITHUB_REPOSITORY}"
 
           git fetch --prune --tags --force
           LATEST_RELEASE_TAG=$(git tag --list 'v*' --sort=version:refname | tail -n 1)
@@ -74,7 +73,6 @@ jobs:
       id-token: write
       packages: write
     runs-on: ubuntu-22.04
-    if: github.repository == 'argoproj-labs/clusterprofile-integration-for-argocd'
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -124,7 +122,6 @@ jobs:
       id-token: write
       packages: write
     runs-on: ubuntu-22.04
-    if: github.repository == 'argoproj-labs/clusterprofile-integration-for-argocd'
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -157,8 +154,11 @@ jobs:
 
       - name: Package Helm chart
         env:
+          IMAGE_REPOSITORY: ${{ needs.setup-variables.outputs.image_name }}
           RELEASE_VERSION: ${{ needs.setup-variables.outputs.release_version }}
         run: |
+          sed -i "s#^  repository: .*#  repository: ${IMAGE_REPOSITORY}#" \
+            charts/argocd-clusterprofile-controller/values.yaml
           mkdir -p "${RUNNER_TEMP}/charts"
           helm package charts/argocd-clusterprofile-controller \
             --version "${RELEASE_VERSION}" \
