@@ -39,7 +39,7 @@ jobs:
 
   push:
     name: Push image and chart
-    if: github.repository == 'argoproj-labs/clusterprofile-integration-for-argocd' && github.event_name == 'push'
+    if: github.event_name == 'push'
     needs: [build]
     runs-on: ubuntu-22.04
     permissions:
@@ -69,8 +69,8 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-          ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd:${{ github.sha }}
-          ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd:main
+          ghcr.io/${{ github.repository }}:${{ github.sha }}
+          ghcr.io/${{ github.repository }}:main
     - name: Setup Helm
       uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       with:
@@ -81,7 +81,7 @@ jobs:
       env:
         IMAGE_DIGEST: ${{ steps.build-and-push.outputs.digest }}
       run: |
-        cosign sign --yes "ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd@${IMAGE_DIGEST}"
+        cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
     - name: Login to ghcr.io for Helm
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,7 +90,11 @@ jobs:
           --username "${GITHUB_ACTOR}" \
           --password-stdin
     - name: Package Helm chart
+      env:
+        IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
       run: |
+        yq -i '.image.repository = strenv(IMAGE_REPOSITORY)' \
+          charts/argocd-clusterprofile-controller/values.yaml
         mkdir -p "${RUNNER_TEMP}/charts"
         helm package charts/argocd-clusterprofile-controller \
           --version 0.0.0-main \
@@ -100,7 +104,7 @@ jobs:
       id: push-chart
       run: |
         push_output=$(helm push "${RUNNER_TEMP}/charts/argocd-clusterprofile-controller-0.0.0-main.tgz" \
-          oci://ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd 2>&1)
+          "oci://ghcr.io/${GITHUB_REPOSITORY}" 2>&1)
 
         echo "${push_output}"
 
@@ -115,4 +119,4 @@ jobs:
       env:
         CHART_DIGEST: ${{ steps.push-chart.outputs.digest }}
       run: |
-        cosign sign --yes "ghcr.io/argoproj-labs/clusterprofile-integration-for-argocd/argocd-clusterprofile-controller@${CHART_DIGEST}"
+        cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}/argocd-clusterprofile-controller@${CHART_DIGEST}"
