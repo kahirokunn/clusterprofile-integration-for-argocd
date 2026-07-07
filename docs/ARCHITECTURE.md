@@ -61,6 +61,9 @@ sequenceDiagram
     CPController-->>KubeAPI: Reconcile complete
 ```
 
+Each ClusterProfile is reconciled into one Secret named `cluster-<name>`,
+created in the namespace the controller runs in.
+
 For a custom access provider, the controller:
 
 1. Reads the access providers file configured by
@@ -79,12 +82,51 @@ The resulting cluster Secret contains:
 | `data.server` | Selected `AccessProvider.cluster.server` |
 | `data.config` | JSON-encoded Argo CD `ClusterConfig`, including TLS data and optional `execProviderConfig` |
 
+The Secret labels are:
+
+| Label | Value |
+| --- | --- |
+| Every label on the ClusterProfile | Copied unchanged, so selectors such as an ApplicationSet `clusters` generator can match on ClusterProfile labels. |
+| `argocd.argoproj.io/secret-type` | `cluster`, which marks the Secret as an Argo CD cluster Secret. |
+| `argocd.argoproj.io/cluster-profile-origin` | `<namespace>-<name>` of the source ClusterProfile. |
+
 The current implementation uses
 `access.Config.BuildConfigFromCP(clusterProfile)` from the Cluster Inventory API
 library to resolve the provider and build a client-go `rest.Config`. That
 `rest.Config` is an intermediate representation only. This controller does not
 use it to contact the registered cluster; it maps the resolved values into Argo
 CD's `ClusterConfig` JSON.
+
+The controller adds the finalizer `argoproj.io/cluster-profile-finalizer` to
+every ClusterProfile it reconciles. When a ClusterProfile is deleted, the
+controller first deletes the corresponding `cluster-<name>` Secret and then
+removes the finalizer, so the cluster is deregistered from Argo CD before the
+ClusterProfile disappears.
+
+The controller reads `ClusterProfile.status.accessProviders` and never writes
+status. Its only writes to the ClusterProfile are the finalizer add and
+remove.
+
+## Namespace Scoping
+
+`--cluster-profile-namespaces` controls which namespaces the controller
+watches for ClusterProfiles. It accepts a comma-separated list of namespaces,
+or `*` to watch all namespaces. When the flag is not set, the controller
+watches only its own namespace.
+
+The watch scope does not change where Secrets are written. Generated cluster
+Secrets always go to the namespace the controller runs in, because that is
+where Argo CD reads cluster Secrets.
+
+The Secret name is derived from the ClusterProfile name only. ClusterProfiles
+with the same name in different watched namespaces therefore map to the same
+`cluster-<name>` Secret, and the last reconciled ClusterProfile wins. The
+`argocd.argoproj.io/cluster-profile-origin` label on the Secret shows which
+ClusterProfile produced the current contents.
+
+RBAC follows the watch scope. The provided kustomize manifests and Helm chart
+grant ClusterProfile access through a namespaced Role in each watched
+namespace, and switch to a ClusterRole only when watching all namespaces.
 
 ## Runtime Authentication Flow
 
