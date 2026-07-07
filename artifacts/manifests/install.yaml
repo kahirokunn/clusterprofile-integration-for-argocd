@@ -586,9 +586,7 @@ spec:
         app.kubernetes.io/name: argocd-clusterprofile-controller
     spec:
       containers:
-      - args:
-        - /manager
-        env:
+      - env:
         - name: GRPC_ENABLE_TXT_SERVICE_CONFIG
           valueFrom:
             configMapKeyRef:
