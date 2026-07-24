@@ -9,6 +9,11 @@ IMG ?= $(IMAGE_REPOSITORY)/$(IMAGE_NAME):$(IMAGE_TAG)
 # E2E settings
 E2E_INSTALL_METHOD?=helm
 
+# Generated install manifest settings
+KUSTOMIZE ?= kubectl kustomize
+KUSTOMIZE_ROOT := artifacts/manifests
+INSTALL_MANIFEST := $(KUSTOMIZE_ROOT)/install.yaml
+
 # Helm tooling settings
 HELM_CHART_DIRS := $(shell find charts -mindepth 1 -maxdepth 1 -type d -exec test -f '{}/Chart.yaml' ';' -print | sort)
 HELM_VALUES_SCHEMA_CHART := charts/argocd-clusterprofile-controller
@@ -36,7 +41,21 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: manifests
-manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: ## Generate the consolidated install manifest from the Kustomize sources.
+	@set -e; \
+	tmp=$$(mktemp "$(KUSTOMIZE_ROOT)/.install.yaml.tmp.XXXXXX"); \
+	trap 'rm -f "$$tmp"' EXIT; \
+	$(KUSTOMIZE) $(KUSTOMIZE_ROOT) >"$$tmp"; \
+	chmod 0644 "$$tmp"; \
+	mv "$$tmp" $(INSTALL_MANIFEST)
+
+.PHONY: validate-manifests
+validate-manifests: ## Verify the consolidated install manifest is up to date.
+	@set -e; \
+	tmp=$$(mktemp); \
+	trap 'rm -f "$$tmp"' EXIT; \
+	$(KUSTOMIZE) $(KUSTOMIZE_ROOT) >"$$tmp"; \
+	diff -u $(INSTALL_MANIFEST) "$$tmp"
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -54,7 +73,7 @@ test: fmt vet ## Run tests.
 	go test ./... -coverprofile cover.out
 
 .PHONY: e2e
-e2e: ## Run full kind-based e2e tests.
+e2e: ## Run full live and multi-node HA kind-based e2e tests.
 	$(MAKE) docker-build
 	E2E_IMG=$(IMG) E2E_INSTALL_METHOD=$(E2E_INSTALL_METHOD) ./hack/e2e-kind.sh
 
@@ -95,6 +114,64 @@ push-image: ## Push single-arch container image.
 .PHONY: helm-lint
 helm-lint: ## Lint Helm charts.
 	helm lint $(HELM_CHART_DIRS)
+
+.PHONY: validate-helm-rendering
+validate-helm-rendering: ## Verify default and VPA-enabled Helm rendering.
+	@set -e; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	helm template test $(HELM_VALUES_SCHEMA_CHART) >"$$tmp/default.yaml"; \
+	if grep -q '^kind: VerticalPodAutoscaler$$' "$$tmp/default.yaml"; then \
+		echo "default Helm rendering unexpectedly contains a VerticalPodAutoscaler" >&2; \
+		exit 1; \
+	fi; \
+	grep -q 'memory: 256Mi$$' "$$tmp/default.yaml"; \
+	grep -q 'cpu: 10m$$' "$$tmp/default.yaml"; \
+	grep -q 'memory: 128Mi$$' "$$tmp/default.yaml"; \
+	if grep -q 'cpu: 500m$$' "$$tmp/default.yaml"; then \
+		echo "default Helm rendering unexpectedly contains a CPU limit" >&2; \
+		exit 1; \
+	fi; \
+	helm template test $(HELM_VALUES_SCHEMA_CHART) \
+		--set vpa.enabled=true \
+		>"$$tmp/vpa-default.yaml"; \
+	grep -q '^kind: VerticalPodAutoscaler$$' "$$tmp/vpa-default.yaml"; \
+	grep -q 'updateMode: "Recreate"$$' "$$tmp/vpa-default.yaml"; \
+	helm template test $(HELM_VALUES_SCHEMA_CHART) \
+		--set vpa.enabled=true \
+		--set-string vpa.updateMode=Off \
+		--set-string vpa.labels.test-label=custom \
+		--set-string vpa.annotations.test-annotation=custom \
+		--set-string vpa.containerPolicy.controlledValues=RequestsOnly \
+		>"$$tmp/vpa.yaml"; \
+	grep -q '^kind: VerticalPodAutoscaler$$' "$$tmp/vpa.yaml"; \
+	grep -q 'updateMode: "Off"$$' "$$tmp/vpa.yaml"; \
+	grep -q 'containerName: clusterprofile-controller$$' "$$tmp/vpa.yaml"; \
+	grep -q 'controlledValues: RequestsOnly$$' "$$tmp/vpa.yaml"; \
+	grep -q 'test-label: custom$$' "$$tmp/vpa.yaml"; \
+	grep -q 'test-annotation: custom$$' "$$tmp/vpa.yaml"; \
+	if helm template test $(HELM_VALUES_SCHEMA_CHART) \
+		--set vpa.enabled=true \
+		--set-string vpa.containerPolicy.containerName=other \
+		>/dev/null 2>&1; then \
+		echo "vpa.containerPolicy.containerName override unexpectedly rendered" >&2; \
+		exit 1; \
+	fi; \
+	for mode in Off Initial Recreate InPlaceOrRecreate; do \
+		helm template test $(HELM_VALUES_SCHEMA_CHART) \
+			--set vpa.enabled=true \
+			--set-string vpa.updateMode="$$mode" \
+			>/dev/null; \
+	done; \
+	for mode in Auto InPlace Unknown; do \
+		if helm template test $(HELM_VALUES_SCHEMA_CHART) \
+			--set vpa.enabled=true \
+			--set-string vpa.updateMode="$$mode" \
+			>/dev/null 2>&1; then \
+			echo "unsupported VPA update mode $$mode unexpectedly passed validation" >&2; \
+			exit 1; \
+		fi; \
+	done
 
 .PHONY: validate-values-schema
 validate-values-schema: ## Verify generated Helm values schema is up to date.

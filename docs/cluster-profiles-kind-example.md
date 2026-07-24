@@ -1,18 +1,19 @@
-# Using Cluster Profiles with Kind Clusters
+# Using Cluster Profiles with Kind clusters
 
 This guide demonstrates how to use Cluster Profiles to connect a spoke cluster to an Argo CD instance running in a hub cluster.
 
 > [!TIP]
-> For a similar example, see the ClusterProfile API's [secretreader](https://github.com/kubernetes-sigs/cluster-inventory-api/blob/main/examples/controller-example/README.md).
+> For a similar example, see the ClusterProfile API's [secretreader](https://github.com/kubernetes-sigs/cluster-inventory-api/blob/main/examples/controller-example/plugins/secretreader/README.md).
 
 ## Prerequisites
 
 - Docker, Kind, Kubectl, Helm
 - A Kubernetes version that supports ImageVolume.
 
-## 1. Create Hub and Spoke Clusters
+## 1. Create hub and spoke clusters
 
 Create two `kind` clusters:
+
 ```bash
 kind create cluster --name hub
 kind create cluster --name spoke
@@ -28,12 +29,8 @@ kubectl config set-context --current --namespace=argocd
 
 helm repo add argo https://argoproj.github.io/argo-helm
 helm repo update argo
-# TODO: Once the first Argo CD release containing
-# 6d92e177b45fcd51bde0dbc169f7f923acc9a79d is available, replace this latest
-# image tag override with that released version and document it as the minimum
-# supported Argo CD version for ClusterProfile exec config propagation.
 helm upgrade --install argocd argo/argo-cd \
-  --set global.image.tag=latest \
+  --set global.image.tag=v3.5.0 \
   --namespace argocd \
   --create-namespace \
   --wait
@@ -42,13 +39,12 @@ helm upgrade --install argocd argo/argo-cd \
 kubectl apply -k artifacts/manifests
 ```
 
-### \[Alternative\] Local Development
+### \[Alternative\] Local development
 
 If you have made changes to the controller source code, build and deploy a local image instead. This is only necessary when doing local development of this controller!
 
 ```bash
 kubectl config use-context kind-hub
-kubectl create namespace argocd
 kubectl config set-context --current --namespace=argocd
 
 # Build local controller image
@@ -59,9 +55,10 @@ kind load docker-image ghcr.io/argoproj-labs/clusterprofile-integration-for-argo
 kubectl apply -k artifacts/manifests
 ```
 
-## 3. Configure Spoke Cluster Service Account
+## 3. Configure spoke cluster service account
 
 Create `argocd-manager` service account in `spoke`:
+
 ```bash
 kubectl config use-context kind-spoke
 kubectl apply -f - <<EOF
@@ -96,6 +93,7 @@ EOF
 ```
 
 Create the namespace for the sample application:
+
 ```bash
 kubectl config use-context kind-spoke
 kubectl create namespace guestbook
@@ -236,11 +234,10 @@ spec:
           volumeMounts:
             - name: cp-creds-vol
               mountPath: /app/cp-creds
-          args:
-            - "/manager"
-            - "--clusterprofile-provider-file=/app/cp-creds/cp-creds.json"'
+          env:
+            - name: ARGOCD_CLUSTERPROFILE_CONTROLLER_CLUSTERPROFILE_PROVIDER_FILE
+              value: /app/cp-creds/cp-creds.json
 ```
-Setting a value for `--clusterprofile-provider-file` will enable the Cluster Profile syncer in the clusterprofile controller.
 
 Wait for both controllers to roll out:
 
@@ -255,6 +252,7 @@ kubectl rollout status deploy/argocd-clusterprofile-controller --timeout=300s
 Normally, a controller would create the Cluster Profile and update its status. In this example we will create it manually and patch in the status.
 
 Create the Cluster Profile object to represent `spoke`:
+
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: "multicluster.x-k8s.io/v1alpha1"
@@ -294,11 +292,15 @@ kubectl patch clusterprofile spoke-cluster --subresource=status --type=merge -p 
   }
 }"
 ```
+
 Note that the provider's `name` refers to the name in the access providers secret/file.
+
+The controller generates the Argo CD cluster Secret `cluster-spoke-cluster` in `argocd`, the same namespace as the ClusterProfile. Argo CD reads its cluster Secrets from that namespace.
 
 ## 8. Create ApplicationSet
 
 Create simple ApplicationSet with ClusterGenerator:
+
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: argoproj.io/v1alpha1
@@ -328,10 +330,12 @@ EOF
 Everything should now be in place!
 
 Verify that the application was created and synced:
+
 ```bash
 kubectl config use-context kind-spoke
 kubectl get pods -n guestbook
 ```
+
 You should see the `guestbook-ui` pod appear.
 
 ## 9. Cleanup

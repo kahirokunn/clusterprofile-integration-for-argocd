@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code_any_changed }}
+      docs: ${{ steps.filter.outputs.docs_any_changed }}
       helm: ${{ steps.filter.outputs.helm_any_changed }}
     steps:
       - name: Checkout code
@@ -29,10 +30,41 @@ jobs:
               - '!**.md'
               - '!**/*.md'
               - '!docs/**'
-              - '!Dockerfile.*'
+              - '!.markdownlint-cli2.yaml'
+              - '!lychee.toml'
               - '!charts/**'
             helm:
               - 'charts/**'
+            docs:
+              - 'README.md'
+              - 'SECURITY.md'
+              - 'docs/**'
+              - '.markdownlint-cli2.yaml'
+              - 'lychee.toml'
+
+  docs:
+    name: Documentation
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe # v24.1.0
+        with:
+          # An empty value overrides the action's *.{md,markdown} default so
+          # the globs in .markdownlint-cli2.yaml select the files.
+          globs: ''
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml README.md SECURITY.md 'docs/**/*.md'
 
   lint:
     name: Lint
@@ -74,11 +106,19 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.1
+
       - name: Run tests
         run: go test ./... -cover
 
       - name: Build manager
         run: go build ./...
+
+      - name: Validate generated install manifest
+        run: make validate-manifests
 
   validate-helm-charts:
     name: Validate Helm charts
@@ -108,6 +148,9 @@ jobs:
       - name: Lint Helm charts
         run: make helm-lint
 
+      - name: Validate Helm rendering
+        run: make validate-helm-rendering
+
       - name: Validate helm-docs generation
         uses: losisin/helm-docs-github-action@2ccf3e77eb70dc80d62f8cc26f15d0a96b75fef4 # v1.8.0
         with:
@@ -131,7 +174,7 @@ jobs:
         install-method:
           - kustomize
           - helm
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -178,4 +221,6 @@ jobs:
           jq --version
 
       - name: Run full e2e
-        run: make e2e E2E_INSTALL_METHOD=${{ matrix.install-method }}
+        env:
+          E2E_IMAGE: example.invalid:5000/cpia/controller:e2e-${{ github.sha }}-${{ matrix.install-method }}
+        run: make e2e IMG="${E2E_IMAGE}" E2E_INSTALL_METHOD=${{ matrix.install-method }}

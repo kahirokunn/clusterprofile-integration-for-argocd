@@ -4,12 +4,12 @@ This project makes clusters represented by Cluster Inventory API
 `ClusterProfile` resources available to Argo CD as managed clusters.
 
 It does this by translating ClusterProfile resources into Argo CD cluster
-Secrets. The ClusterProfile controller writes those Secrets and does not
-authenticate to registered clusters. Argo CD components use the translated
-Secrets when accessing those clusters and may execute configured provider
-plugins to obtain credentials.
+Secrets. The ClusterProfile controller writes each Secret into the namespace of
+its source ClusterProfile and does not authenticate to registered clusters.
+Argo CD components use the translated Secrets when accessing those clusters and
+may execute configured provider plugins to obtain credentials.
 
-## Component Model
+## Component model
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ Mounting the plugin binary into the ClusterProfile controller is unnecessary.
 The controller only writes the command path into the cluster Secret; it never
 executes that command.
 
-## Reconciliation Flow
+## Reconciliation flow
 
 ```mermaid
 sequenceDiagram
@@ -54,12 +54,35 @@ sequenceDiagram
     participant ProviderFile as access providers file
     participant Secret as Argo CD cluster Secret
 
-    KubeAPI->>CPController: ClusterProfile add/update/delete event
-    CPController->>ProviderFile: Resolve matching provider by name
-    CPController->>CPController: Build Argo CD ClusterConfig
-    CPController->>Secret: Create or update data.name, data.server, data.config
+    KubeAPI->>CPController: ClusterProfile or owned Secret event
+    CPController->>CPController: Resolve advertised access
+    alt No access is advertised
+        CPController->>Secret: Delete with UID/resourceVersion preconditions
+    else Access is advertised
+        CPController->>ProviderFile: Resolve custom provider when required
+        alt Rendering succeeds
+            CPController->>Secret: Create or update with optimistic locking
+        else Rendering fails
+            CPController->>Secret: Retain last-known-good data or delete revoked data
+        end
+    end
     CPController-->>KubeAPI: Reconcile complete
 ```
+
+The Secret is created in the same namespace as the ClusterProfile, named
+`cluster-<ClusterProfile name>`, with a deterministic shorter name when that
+would exceed the Kubernetes name length limit. The
+`argocd.argoproj.io/cluster-profile-name` label and annotation record the
+source ClusterProfile name. A controller owner reference ties the Secret to
+its ClusterProfile: Kubernetes garbage collection deletes the Secret together
+with the ClusterProfile, and the controller watches its Secrets through the
+same reference, so out-of-band edits or deletions are reconciled back.
+
+The controller mutates or deletes only Secrets that this owner reference marks
+as its own. It does not adopt ownerless Secrets or overwrite a Secret owned by
+another object; those cases are reported as collisions for an operator to
+resolve. Writes and deletes carry preconditions, so a concurrent writer causes
+a retry instead of silently lost data.
 
 For a custom access provider, the controller:
 
@@ -77,16 +100,28 @@ The resulting cluster Secret contains:
 | --- | --- |
 | `data.name` | `ClusterProfile.metadata.name` |
 | `data.server` | Selected `AccessProvider.cluster.server` |
-| `data.config` | JSON-encoded Argo CD `ClusterConfig`, including TLS data and optional `execProviderConfig` |
+| `data.config` | JSON-encoded Argo CD `ClusterConfig`, including TLS, proxy, compression, and optional `execProviderConfig` data |
 
 The current implementation uses
 `access.Config.BuildConfigFromCP(clusterProfile)` from the Cluster Inventory API
-library to resolve the provider and build a client-go `rest.Config`. That
-`rest.Config` is an intermediate representation only. This controller does not
-use it to contact the registered cluster; it maps the resolved values into Argo
-CD's `ClusterConfig` JSON.
+library to resolve authentication material and exec configuration. The
+resulting `rest.Config` is an intermediate representation only: the controller
+never uses it to contact the registered cluster, and the selected
+`AccessProvider.cluster` remains the source of truth for the connection
+settings written into Argo CD's `ClusterConfig` JSON.
 
-## Runtime Authentication Flow
+### Access loss and last-known-good credentials
+
+An annotation on each generated Secret records the access provider that
+produced it. After a render failure the controller keeps the last successfully
+written Secret and retries while `ClusterProfile.status` still advertises that
+provider, and deletes the Secret once status stops advertising access or that
+provider.
+
+Editing the access providers file therefore never revokes access. To revoke
+access, remove the provider entry from status.
+
+## Runtime authentication flow
 
 ```mermaid
 sequenceDiagram
@@ -122,7 +157,7 @@ present in one component but missing from another, the component without the
 binary will fail when it tries to use the cluster Secret, even though the
 ClusterProfile controller reconciled the Secret successfully.
 
-## Custom Provider Resolution
+## Custom provider resolution
 
 Custom providers use an access providers file. The file is read by the
 ClusterProfile controller, but the configured command is executed later by Argo
@@ -162,7 +197,7 @@ status:
         server: https://example-cluster
 ```
 
-## Cluster Information for Exec Plugins
+## Cluster information for exec plugins
 
 When `provideClusterInfo` is true, the Kubernetes exec credential protocol
 passes cluster information to the exec plugin through the `KUBERNETES_EXEC_INFO`
@@ -192,7 +227,7 @@ the ServiceAccounts of every Argo CD component that can execute the provider.
 For standard usage, that means the ServiceAccounts used by
 `argocd-application-controller` and `argocd-server`.
 
-## Built-In Providers
+## Built-in providers
 
 Access provider names with the `argo-cd-builtin-` prefix are handled without an
 access providers file. For example, `argo-cd-builtin-gcp` is translated into an
@@ -205,7 +240,7 @@ argocd-k8s-auth gcp
 This path is separate from the custom provider plugin flow. Built-in providers
 use the authentication commands available in the Argo CD runtime image.
 
-## Deployment Invariants
+## Deployment invariants
 
 The following invariants keep the integration predictable:
 
