@@ -132,6 +132,13 @@ The Helm chart can create a `VerticalPodAutoscaler` when `vpa.enabled` is true. 
 
 Every namespace watched for `ClusterProfile`s is also a namespace where the controller writes `Secret`s. The Helm chart creates a `Role` in each configured namespace, or a `ClusterRole` when watching all namespaces. Wildcard mode therefore grants the controller read and write access to every `Secret` in the cluster. Prefer an explicit namespace list unless cluster-wide watching is required. The Kustomize manifests grant cluster-wide `Secret` access to support `--cluster-profile-namespaces='*'`.
 
+### Monitoring
+
+The controller exposes Prometheus metrics at `/metrics` on port `8080`. The
+Helm chart and the `artifacts/overlays/monitoring` Kustomize overlay can also
+create a `ServiceMonitor` and inventory-member alerts. See
+[Monitoring](docs/monitoring.md) for metrics and installation examples.
+
 ### Configuration parameters
 
 The controller binary can be configured via command-line arguments or equivalent environment variables. The defaults below apply when invoking the binary directly; packaged manifests may set explicit values, as described above. Standard kubeconfig flags are also available through `--help`.

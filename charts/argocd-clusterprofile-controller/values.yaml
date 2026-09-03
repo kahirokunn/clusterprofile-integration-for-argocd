@@ -235,6 +235,101 @@ service:
     # @schema required; additionalProperties:{"type":"string"}
     # -- Extra annotations for the metrics Service.
     annotations: {}
+    # @schema required; additionalProperties:false
+    serviceMonitor:
+      # @schema required
+      # -- Create a Prometheus Operator ServiceMonitor for the metrics Service.
+      enabled: false
+      # @schema required; minLength:1
+      # -- Interval between Prometheus scrapes.
+      interval: 30s
+      # @schema required
+      # -- Per-scrape timeout. Empty uses the Prometheus default.
+      scrapeTimeout: ""
+      # @schema required
+      # -- Preserve labels exposed by the controller when they conflict with target labels.
+      honorLabels: false
+      # @schema required; item:object
+      # -- Relabeling rules applied before scraping.
+      relabelings: []
+      # @schema required; item:object
+      # -- Relabeling rules applied before samples are ingested.
+      metricRelabelings: []
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Labels used by a Prometheus ServiceMonitor selector.
+      selector: {}
+      # @schema required; enum:["", http, https]
+      # -- Metrics endpoint scheme. Empty uses the ServiceMonitor default (`http`).
+      scheme: ""
+      # @schema required; skipProperties:true
+      # -- TLS configuration for the metrics endpoint.
+      tlsConfig: {}
+      # @schema required; maxLength:63; pattern:^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Namespace for the ServiceMonitor. Empty uses the controller namespace.
+      namespace: ""
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Additional labels for the ServiceMonitor.
+      additionalLabels: {}
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Annotations for the ServiceMonitor.
+      annotations: {}
+    # @schema required; additionalProperties:false
+    rules:
+      # @schema required
+      # -- Create a PrometheusRule with inventory member warning alerts.
+      enabled: false
+      # @schema required; maxLength:63; pattern:^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Namespace for the PrometheusRule. Empty uses the controller namespace.
+      namespace: ""
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Labels used by a PrometheusRule selector.
+      selector: {}
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Additional labels for the PrometheusRule.
+      additionalLabels: {}
+      # @schema required; additionalProperties:{"type":"string"}
+      # -- Annotations for the PrometheusRule.
+      annotations: {}
+      # @schema required; item:object
+      # -- Alerting rules evaluated by Prometheus-compatible rule evaluators.
+      spec:
+        - alert: ClusterProfileInventoryMemberDuplicate
+          expr: >-
+            max by (namespace, inventory_member_id)
+            (argocd_clusterprofile_inventory_member_conflict_group_size{resolution="duplicate"}) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Duplicate ClusterProfiles share an inventory member ID
+            description: >-
+              {{ $value }} ClusterProfiles in namespace {{ $labels.namespace }} share inventory
+              member ID {{ $labels.inventory_member_id }}; the oldest profile is selected.
+        - alert: ClusterProfileInventoryMemberAmbiguous
+          expr: >-
+            max by (namespace, inventory_member_id)
+            (argocd_clusterprofile_inventory_member_conflict_group_size{resolution="ambiguous"}) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: ClusterProfile inventory member selection is ambiguous
+            description: >-
+              {{ $value }} ClusterProfiles in namespace {{ $labels.namespace }} share inventory member
+              ID {{ $labels.inventory_member_id }} and the oldest creation timestamp; no profile is
+              selected and existing generated Secrets remain unchanged.
+        - alert: ClusterProfileInventoryMemberIDInvalid
+          expr: >-
+            max by (namespace)
+            (argocd_clusterprofile_inventory_member_id_invalid_profiles) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: ClusterProfiles have an empty inventory member ID
+            description: >-
+              Namespace {{ $labels.namespace }} has {{ $value }} active ClusterProfiles with an
+              empty multicluster.x-k8s.io/inventory-member-id label; those profiles are not deduplicated.
 
 # @schema additionalProperties:false
 networkPolicy:

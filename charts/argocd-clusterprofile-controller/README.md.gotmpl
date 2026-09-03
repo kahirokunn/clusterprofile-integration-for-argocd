@@ -22,4 +22,13 @@ Set `vpa.enabled` to create a `VerticalPodAutoscaler` for the controller
 Deployment. The cluster must already provide the `autoscaling.k8s.io/v1` CRD,
 a VPA controller, and the Metrics Server; this chart does not install them.
 
+## Monitoring
+
+The metrics Service exposes `/metrics` on port `8080`. Set
+`service.metrics.serviceMonitor.enabled=true` to create a `ServiceMonitor`, and
+set `service.metrics.rules.enabled=true` to create the bundled inventory-member
+warning alerts. These options require the `monitoring.coreos.com/v1` CRDs and
+are disabled by default. If Prometheus selects monitoring resources by label,
+set the required labels through each resource's `additionalLabels` value.
+
 {{ template "chart.valuesSection" . }}{{ "\n" -}}

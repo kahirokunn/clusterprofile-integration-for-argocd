@@ -1,0 +1,24 @@
+{{- if and .Values.service.metrics.enabled .Values.service.metrics.rules.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "argocd-clusterprofile-controller.controller.fullname" . }}
+  namespace: {{ default (include "argocd-clusterprofile-controller.namespace" .) .Values.service.metrics.rules.namespace | quote }}
+  labels:
+    {{- include "argocd-clusterprofile-controller.labels" . | nindent 4 }}
+    {{- with .Values.service.metrics.rules.selector }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.service.metrics.rules.additionalLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.metrics.rules.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  groups:
+    - name: argocd-clusterprofile-controller
+      rules:
+        {{- toYaml .Values.service.metrics.rules.spec | nindent 8 }}
+{{- end }}
