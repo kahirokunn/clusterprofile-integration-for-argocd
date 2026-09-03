@@ -55,7 +55,8 @@ validate-manifests: ## Verify the consolidated install manifest is up to date.
 	tmp=$$(mktemp); \
 	trap 'rm -f "$$tmp"' EXIT; \
 	$(KUSTOMIZE) $(KUSTOMIZE_ROOT) >"$$tmp"; \
-	diff -u $(INSTALL_MANIFEST) "$$tmp"
+	diff -u $(INSTALL_MANIFEST) "$$tmp"; \
+	$(KUSTOMIZE) artifacts/overlays/monitoring >/dev/null
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -81,11 +82,11 @@ e2e: ## Run full live and multi-node HA kind-based e2e tests.
 
 .PHONY: build
 build: fmt vet ## Build manager binary.
-	go build -o bin/manager main.go controller.go
+	go build -o bin/manager .
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run main.go controller.go
+	go run .
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
@@ -125,6 +126,10 @@ validate-helm-rendering: ## Verify default and VPA-enabled Helm rendering.
 		echo "default Helm rendering unexpectedly contains a VerticalPodAutoscaler" >&2; \
 		exit 1; \
 	fi; \
+	if grep -Eq '^kind: (ServiceMonitor|PrometheusRule)$$' "$$tmp/default.yaml"; then \
+		echo "default Helm rendering unexpectedly contains monitoring custom resources" >&2; \
+		exit 1; \
+	fi; \
 	grep -q 'memory: 256Mi$$' "$$tmp/default.yaml"; \
 	grep -q 'cpu: 10m$$' "$$tmp/default.yaml"; \
 	grep -q 'memory: 128Mi$$' "$$tmp/default.yaml"; \
@@ -150,6 +155,18 @@ validate-helm-rendering: ## Verify default and VPA-enabled Helm rendering.
 	grep -q 'controlledValues: RequestsOnly$$' "$$tmp/vpa.yaml"; \
 	grep -q 'test-label: custom$$' "$$tmp/vpa.yaml"; \
 	grep -q 'test-annotation: custom$$' "$$tmp/vpa.yaml"; \
+	helm template test $(HELM_VALUES_SCHEMA_CHART) \
+		--api-versions monitoring.coreos.com/v1 \
+		--set service.metrics.serviceMonitor.enabled=true \
+		--set service.metrics.rules.enabled=true \
+		--set-string service.metrics.serviceMonitor.selector.prometheus=kube-prometheus \
+		--set-string service.metrics.rules.selector.prometheus=kube-prometheus \
+		>"$$tmp/monitoring.yaml"; \
+	grep -q '^kind: ServiceMonitor$$' "$$tmp/monitoring.yaml"; \
+	grep -q '^kind: PrometheusRule$$' "$$tmp/monitoring.yaml"; \
+	grep -q 'port: metrics$$' "$$tmp/monitoring.yaml"; \
+	grep -q 'prometheus: kube-prometheus$$' "$$tmp/monitoring.yaml"; \
+	grep -q 'max by (namespace, inventory_member_id)' "$$tmp/monitoring.yaml"; \
 	if helm template test $(HELM_VALUES_SCHEMA_CHART) \
 		--set vpa.enabled=true \
 		--set-string vpa.containerPolicy.containerName=other \

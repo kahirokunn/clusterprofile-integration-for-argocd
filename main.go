@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
@@ -121,7 +122,7 @@ func NewCommand() *cobra.Command {
 			vers.LogStartupInfo(
 				"ArgoCD Cluster Profile Controller",
 				map[string]any{
-					"namespace": namespace,
+					namespaceKey: namespace,
 				},
 			)
 
@@ -169,11 +170,22 @@ func NewCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
+			controllerMetrics := newClusterProfileMetrics(
+				mgr.GetCache(),
+				ctrl.Log.WithName("metrics").WithName("ClusterProfile"),
+				dryRun,
+			)
+			if err := ctrlmetrics.Registry.Register(controllerMetrics); err != nil {
+				log.Error(err, "unable to register ClusterProfile metrics")
+				os.Exit(1)
+			}
+
 			if err = (&ClusterProfileReconciler{
 				Client:                     mgr.GetClient(),
 				Scheme:                     mgr.GetScheme(),
 				Log:                        ctrl.Log.WithName("controllers").WithName("ClusterProfile"),
 				ClusterProfileProviderFile: clusterProfileProviderFile,
+				metrics:                    controllerMetrics,
 			}).SetupWithManager(mgr); err != nil {
 				log.Error(err, "unable to create controller", "controller", "ClusterProfile")
 				os.Exit(1)

@@ -23,6 +23,15 @@ Set `vpa.enabled` to create a `VerticalPodAutoscaler` for the controller
 Deployment. The cluster must already provide the `autoscaling.k8s.io/v1` CRD,
 a VPA controller, and the Metrics Server; this chart does not install them.
 
+## Monitoring
+
+The metrics Service exposes `/metrics` on port `8080`. Set
+`service.metrics.serviceMonitor.enabled=true` to create a `ServiceMonitor`, and
+set `service.metrics.rules.enabled=true` to create the bundled inventory-member
+warning alerts. These options require the `monitoring.coreos.com/v1` CRDs and
+are disabled by default. If Prometheus selects monitoring resources by label,
+set the required labels through each resource's `additionalLabels` value.
+
 ## Values
 
 | Key | Type | Default | Description |
@@ -72,6 +81,24 @@ a VPA controller, and the Metrics Server; this chart does not install them.
 | service.metrics.annotations | object | `{}` | Extra annotations for the metrics Service. |
 | service.metrics.enabled | bool | `true` | Create a metrics Service. |
 | service.metrics.port | int | `8080` | Metrics Service port. |
+| service.metrics.rules.additionalLabels | object | `{}` | Additional labels for the PrometheusRule. |
+| service.metrics.rules.annotations | object | `{}` | Annotations for the PrometheusRule. |
+| service.metrics.rules.enabled | bool | `false` | Create a PrometheusRule with inventory member warning alerts. |
+| service.metrics.rules.namespace | string | `""` | Namespace for the PrometheusRule. Empty uses the controller namespace. |
+| service.metrics.rules.selector | object | `{}` | Labels used by a PrometheusRule selector. |
+| service.metrics.rules.spec | list | `[{"alert":"ClusterProfileInventoryMemberDuplicate","annotations":{"description":"{{ $value }} ClusterProfiles in namespace {{ $labels.namespace }} share inventory member ID {{ $labels.inventory_member_id }}; the oldest profile is selected.","summary":"Duplicate ClusterProfiles share an inventory member ID"},"expr":"max by (namespace, inventory_member_id) (argocd_clusterprofile_inventory_member_conflict_group_size{resolution=\"duplicate\"}) > 1","for":"5m","labels":{"severity":"warning"}},{"alert":"ClusterProfileInventoryMemberAmbiguous","annotations":{"description":"{{ $value }} ClusterProfiles in namespace {{ $labels.namespace }} share inventory member ID {{ $labels.inventory_member_id }} and the oldest creation timestamp; no profile is selected and existing generated Secrets remain unchanged.","summary":"ClusterProfile inventory member selection is ambiguous"},"expr":"max by (namespace, inventory_member_id) (argocd_clusterprofile_inventory_member_conflict_group_size{resolution=\"ambiguous\"}) > 1","for":"5m","labels":{"severity":"warning"}},{"alert":"ClusterProfileInventoryMemberIDInvalid","annotations":{"description":"Namespace {{ $labels.namespace }} has {{ $value }} active ClusterProfiles with an empty multicluster.x-k8s.io/inventory-member-id label; those profiles are not deduplicated.","summary":"ClusterProfiles have an empty inventory member ID"},"expr":"max by (namespace) (argocd_clusterprofile_inventory_member_id_invalid_profiles) > 0","for":"5m","labels":{"severity":"warning"}}]` | Alerting rules evaluated by Prometheus-compatible rule evaluators. |
+| service.metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor. |
+| service.metrics.serviceMonitor.annotations | object | `{}` | Annotations for the ServiceMonitor. |
+| service.metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for the metrics Service. |
+| service.metrics.serviceMonitor.honorLabels | bool | `false` | Preserve labels exposed by the controller when they conflict with target labels. |
+| service.metrics.serviceMonitor.interval | string | `"30s"` | Interval between Prometheus scrapes. |
+| service.metrics.serviceMonitor.metricRelabelings | list | `[]` | Relabeling rules applied before samples are ingested. |
+| service.metrics.serviceMonitor.namespace | string | `""` | Namespace for the ServiceMonitor. Empty uses the controller namespace. |
+| service.metrics.serviceMonitor.relabelings | list | `[]` | Relabeling rules applied before scraping. |
+| service.metrics.serviceMonitor.scheme | string | `""` | Metrics endpoint scheme. Empty uses the ServiceMonitor default (`http`). |
+| service.metrics.serviceMonitor.scrapeTimeout | string | `""` | Per-scrape timeout. Empty uses the Prometheus default. |
+| service.metrics.serviceMonitor.selector | object | `{}` | Labels used by a Prometheus ServiceMonitor selector. |
+| service.metrics.serviceMonitor.tlsConfig | object | `{}` | TLS configuration for the metrics endpoint. |
 | service.metrics.type | string | `"ClusterIP"` | Metrics Service type. |
 | serviceAccount.annotations | object | `{}` | Extra annotations for the service account. |
 | serviceAccount.create | bool | `true` | Create a service account for the controller. |

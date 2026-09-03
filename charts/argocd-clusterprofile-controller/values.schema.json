@@ -429,7 +429,9 @@
             "enabled",
             "type",
             "port",
-            "annotations"
+            "annotations",
+            "serviceMonitor",
+            "rules"
           ],
           "properties": {
             "annotations": {
@@ -448,6 +450,179 @@
               "type": "integer",
               "maximum": 65535,
               "minimum": 1
+            },
+            "rules": {
+              "type": "object",
+              "required": [
+                "enabled",
+                "namespace",
+                "selector",
+                "additionalLabels",
+                "annotations",
+                "spec"
+              ],
+              "properties": {
+                "additionalLabels": {
+                  "description": "Additional labels for the PrometheusRule.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "annotations": {
+                  "description": "Annotations for the PrometheusRule.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "enabled": {
+                  "description": "Create a PrometheusRule with inventory member warning alerts.",
+                  "type": "boolean"
+                },
+                "namespace": {
+                  "description": "Namespace for the PrometheusRule. Empty uses the controller namespace.",
+                  "type": "string",
+                  "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                  "maxLength": 63
+                },
+                "selector": {
+                  "description": "Labels used by a PrometheusRule selector.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "spec": {
+                  "description": "Alerting rules evaluated by Prometheus-compatible rule evaluators.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "alert": {
+                        "type": "string"
+                      },
+                      "annotations": {
+                        "type": "object",
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "summary": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "expr": {
+                        "type": "string"
+                      },
+                      "for": {
+                        "type": "string"
+                      },
+                      "labels": {
+                        "type": "object",
+                        "properties": {
+                          "severity": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "serviceMonitor": {
+              "type": "object",
+              "required": [
+                "enabled",
+                "interval",
+                "scrapeTimeout",
+                "honorLabels",
+                "relabelings",
+                "metricRelabelings",
+                "selector",
+                "scheme",
+                "tlsConfig",
+                "namespace",
+                "additionalLabels",
+                "annotations"
+              ],
+              "properties": {
+                "additionalLabels": {
+                  "description": "Additional labels for the ServiceMonitor.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "annotations": {
+                  "description": "Annotations for the ServiceMonitor.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "enabled": {
+                  "description": "Create a Prometheus Operator ServiceMonitor for the metrics Service.",
+                  "type": "boolean"
+                },
+                "honorLabels": {
+                  "description": "Preserve labels exposed by the controller when they conflict with target labels.",
+                  "type": "boolean"
+                },
+                "interval": {
+                  "description": "Interval between Prometheus scrapes.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "metricRelabelings": {
+                  "description": "Relabeling rules applied before samples are ingested.",
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "namespace": {
+                  "description": "Namespace for the ServiceMonitor. Empty uses the controller namespace.",
+                  "type": "string",
+                  "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                  "maxLength": 63
+                },
+                "relabelings": {
+                  "description": "Relabeling rules applied before scraping.",
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "scheme": {
+                  "description": "Metrics endpoint scheme. Empty uses the ServiceMonitor default (`http`).",
+                  "type": "string",
+                  "enum": [
+                    "",
+                    "http",
+                    "https"
+                  ]
+                },
+                "scrapeTimeout": {
+                  "description": "Per-scrape timeout. Empty uses the Prometheus default.",
+                  "type": "string"
+                },
+                "selector": {
+                  "description": "Labels used by a Prometheus ServiceMonitor selector.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "tlsConfig": {
+                  "description": "TLS configuration for the metrics endpoint.",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false
             },
             "type": {
               "description": "Metrics Service type.",

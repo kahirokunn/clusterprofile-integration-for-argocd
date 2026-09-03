@@ -27,6 +27,8 @@ kind: ClusterProfile
 metadata:
   name: my-cluster
   namespace: argocd
+  labels:
+    multicluster.x-k8s.io/inventory-member-id: prod-us-east-1
 spec:
   clusterManager:
     name: my-cluster-profile-controller
@@ -51,6 +53,11 @@ Generated `Secret`s are labeled with `argocd.argoproj.io/secret-type: cluster` a
 Because Argo CD reads cluster `Secret`s only from its own namespace, create each `ClusterProfile` in the namespace of the Argo CD instance that should manage the cluster.
 
 One shared controller can watch several namespaces (see `--cluster-profile-namespaces`) and serve one Argo CD instance per team namespace.
+
+Use the `multicluster.x-k8s.io/inventory-member-id` label to identify
+ClusterProfiles that represent the same member cluster. Set it to a stable,
+non-empty value; values are compared only within a namespace. See
+[inventory member selection](docs/ARCHITECTURE.md#inventory-member-selection).
 
 ### Authentication
 
@@ -124,6 +131,13 @@ The bundled Helm and Kustomize deployments enable leader election. For high avai
 The Helm chart can create a `VerticalPodAutoscaler` when `vpa.enabled` is true. The cluster must already provide the `autoscaling.k8s.io/v1` CRD, a VPA controller, and the Metrics Server.
 
 Every namespace watched for `ClusterProfile`s is also a namespace where the controller writes `Secret`s. The Helm chart creates a `Role` in each configured namespace, or a `ClusterRole` when watching all namespaces. Wildcard mode therefore grants the controller read and write access to every `Secret` in the cluster. Prefer an explicit namespace list unless cluster-wide watching is required. The Kustomize manifests grant cluster-wide `Secret` access to support `--cluster-profile-namespaces='*'`.
+
+### Monitoring
+
+The controller exposes Prometheus metrics at `/metrics` on port `8080`. The
+Helm chart and the `artifacts/overlays/monitoring` Kustomize overlay can also
+create a `ServiceMonitor` and inventory-member alerts. See
+[Monitoring](docs/monitoring.md) for metrics and installation examples.
 
 ### Configuration parameters
 
