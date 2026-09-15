@@ -12,6 +12,8 @@ permissions:
 
 env:
   HELM_VERSION: v3.18.3
+  IMAGE_DESCRIPTION: Argo CD ClusterProfile controller for registering ClusterProfile resources as Argo CD clusters
+  DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,61 +22,100 @@ concurrency:
 jobs:
   build:
     name: Build container image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout source code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    - name: Generate image metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        context: git
+        images: ghcr.io/${{ github.repository }}
+        flavor: latest=false
+        tags: |
+          type=raw,value=${{ github.event_name == 'push' && 'main' || 'dev' }},priority=1000
+          type=sha,format=long,prefix=,enable=${{ github.event_name == 'push' }}
+        labels: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
+        annotations: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
     - name: Setup QEMU
-      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
     - name: Build container image
-      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: .
         platforms: linux/amd64
         push: false
         sbom: SELECT_CATALOGERS=+go-module-file-cataloger
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        annotations: ${{ steps.meta.outputs.annotations }}
+        build-args: |
+          VERSION=${{ steps.meta.outputs.version }}
+          GIT_COMMIT=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
 
   push:
     name: Publish image and Helm chart
     if: github.event_name == 'push'
     needs: [build]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
       packages: write
     steps:
     - name: Checkout source code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    - name: Generate image metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        context: git
+        images: ghcr.io/${{ github.repository }}
+        flavor: latest=false
+        tags: |
+          type=raw,value=main,priority=1000
+          type=sha,format=long,prefix=
+        labels: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
+        annotations: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
     - name: Setup QEMU
-      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
     - name: Login to ghcr.io
-      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Build and push container image
       id: build-and-push
-      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
         sbom: SELECT_CATALOGERS=+go-module-file-cataloger
-        tags: |
-          ghcr.io/${{ github.repository }}:${{ github.sha }}
-          ghcr.io/${{ github.repository }}:main
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        annotations: ${{ steps.meta.outputs.annotations }}
+        build-args: |
+          VERSION=${{ steps.meta.outputs.version }}
+          GIT_COMMIT=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     - name: Setup Helm
-      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       with:
         version: ${{ env.HELM_VERSION }}
     - name: Install cosign
