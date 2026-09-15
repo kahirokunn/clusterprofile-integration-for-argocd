@@ -12,6 +12,8 @@ permissions:
 
 env:
   HELM_VERSION: v3.18.3
+  IMAGE_DESCRIPTION: Argo CD ClusterProfile controller for registering ClusterProfile resources as Argo CD clusters
+  DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,13 +28,20 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         persist-credentials: false
-    - name: Set build metadata
-      id: build-metadata
-      run: |
-        {
-          echo "git_commit=$(git rev-parse HEAD)"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        } >> "${GITHUB_OUTPUT}"
+    - name: Generate image metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        context: git
+        images: ghcr.io/${{ github.repository }}
+        flavor: latest=false
+        tags: |
+          type=raw,value=${{ github.event_name == 'push' && 'main' || 'dev' }},priority=1000
+          type=sha,format=long,prefix=,enable=${{ github.event_name == 'push' }}
+        labels: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
+        annotations: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
     - name: Setup QEMU
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
     - name: Set up Docker Buildx
@@ -43,10 +52,13 @@ jobs:
         context: .
         platforms: linux/amd64
         push: false
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        annotations: ${{ steps.meta.outputs.annotations }}
         build-args: |
-          VERSION=${{ github.event_name == 'push' && 'main' || 'dev' }}
-          GIT_COMMIT=${{ steps.build-metadata.outputs.git_commit }}
-          BUILD_DATE=${{ steps.build-metadata.outputs.build_date }}
+          VERSION=${{ steps.meta.outputs.version }}
+          GIT_COMMIT=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
 
   push:
     name: Publish image and Helm chart
@@ -62,13 +74,20 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         persist-credentials: false
-    - name: Set build metadata
-      id: build-metadata
-      run: |
-        {
-          echo "git_commit=$(git rev-parse HEAD)"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        } >> "${GITHUB_OUTPUT}"
+    - name: Generate image metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        context: git
+        images: ghcr.io/${{ github.repository }}
+        flavor: latest=false
+        tags: |
+          type=raw,value=main,priority=1000
+          type=sha,format=long,prefix=
+        labels: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
+        annotations: |
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
     - name: Setup QEMU
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
     - name: Set up Docker Buildx
@@ -86,13 +105,13 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        annotations: ${{ steps.meta.outputs.annotations }}
         build-args: |
-          VERSION=main
-          GIT_COMMIT=${{ steps.build-metadata.outputs.git_commit }}
-          BUILD_DATE=${{ steps.build-metadata.outputs.build_date }}
-        tags: |
-          ghcr.io/${{ github.repository }}:${{ github.sha }}
-          ghcr.io/${{ github.repository }}:main
+          VERSION=${{ steps.meta.outputs.version }}
+          GIT_COMMIT=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     - name: Setup Helm
       uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       with:
