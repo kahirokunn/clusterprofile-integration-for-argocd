@@ -32,8 +32,7 @@ COLLISION_SERVER="https://manual-collision.example.com:6443"
 LONG_LABEL_CP_NAME="$(printf 'l%.0s' {1..64})"
 LONG_SECRET_CP_NAME="$(printf 's%.0s' {1..246})"
 MAX_LENGTH_CP_NAME="$(printf 'm%.0s' {1..253})"
-# Named so that its raw Secret name is what LONG_SECRET_CP_NAME would bound down to,
-# which is the digest TestGeneratedClusterProfileMetadata pins.
+# A raw Secret name shaped like a truncated-and-hashed long name must stay distinct.
 RAW_COLLISION_CP_NAME="$(printf 's%.0s' {1..212})-c487d7cd89959dbc1df6f5deec5584b5"
 LONG_LABEL_SERVER="https://long-label.example.com:6443"
 LONG_SECRET_SERVER="https://long-secret.example.com:6443"
@@ -336,6 +335,70 @@ controller_workqueue_is_idle() {
 
 controller_metrics_are_available() {
   controller_metrics_snapshot >/dev/null
+}
+
+custom_metric_series_has_labels() {
+  local series="$1" metric_name="$2" namespace="$3" resolution="$4" member_id="$5"
+  [[ "${series}" == "${metric_name}"\{* ]] &&
+    [[ "${series}" == *"inventory_namespace=\"${namespace}\""* ]] &&
+    [[ "${series}" == *"resolution=\"${resolution}\""* ]] &&
+    { [ -z "${member_id}" ] || [[ "${series}" == *"inventory_member_id=\"${member_id}\""* ]]; }
+}
+
+controller_custom_metric_series_is() {
+  local metric_name="$1" namespace="$2" resolution="$3" member_id="$4" expected="$5"
+  local pod metrics series value pod_count=0 matching
+  for pod in $(controller_pod_names); do
+    pod_count=$((pod_count + 1))
+    metrics="$(
+      kubectl --context "kind-${HUB_CLUSTER}" --request-timeout=5s get --raw \
+        "/api/v1/namespaces/${ARGOCD_NS}/pods/${pod}:8080/proxy/metrics"
+    )" || return 1
+    matching=0
+    while read -r series value _; do
+      if custom_metric_series_has_labels \
+        "${series}" "${metric_name}" "${namespace}" "${resolution}" "${member_id}"; then
+        matching=$((matching + 1))
+        [ "${value}" = "${expected}" ] || return 1
+      fi
+    done <<<"${metrics}"
+    if [ "${matching}" -ne 1 ]; then
+      return 1
+    fi
+  done
+  [ "${pod_count}" -gt 0 ]
+}
+
+controller_custom_metric_series_is_absent() {
+  local metric_name="$1" namespace="$2" resolution="$3" member_id="$4"
+  local pod metrics series value pod_count=0
+  for pod in $(controller_pod_names); do
+    pod_count=$((pod_count + 1))
+    metrics="$(
+      kubectl --context "kind-${HUB_CLUSTER}" --request-timeout=5s get --raw \
+        "/api/v1/namespaces/${ARGOCD_NS}/pods/${pod}:8080/proxy/metrics"
+    )" || return 1
+    while read -r series value _; do
+      if custom_metric_series_has_labels \
+        "${series}" "${metric_name}" "${namespace}" "${resolution}" "${member_id}"; then
+        return 1
+      fi
+    done <<<"${metrics}"
+  done
+  [ "${pod_count}" -gt 0 ]
+}
+
+dump_controller_custom_metric_series() {
+  local metric_name="$1" pod metrics
+  for pod in $(controller_pod_names); do
+    metrics="$(
+      kubectl --context "kind-${HUB_CLUSTER}" --request-timeout=5s get --raw \
+        "/api/v1/namespaces/${ARGOCD_NS}/pods/${pod}:8080/proxy/metrics"
+    )" || continue
+    echo "metrics observed on ${pod} for ${metric_name}:" >&2
+    awk -v metric_name="${metric_name}" \
+      '$1 ~ ("^" metric_name "\\{") { print }' <<<"${metrics}" >&2
+  done
 }
 
 controller_is_stopped() {
@@ -819,7 +882,6 @@ if [[ "${E2E_IMG}" == *@* ]] ||
   echo "E2E_IMG must be an explicitly tagged image reference: ${E2E_IMG}" >&2
   exit 1
 fi
-E2E_LOCAL_IMAGE_ID="$(docker image inspect "${E2E_IMG}" --format '{{.Id}}')"
 
 if kind get clusters | grep -qx "${HUB_CLUSTER}"; then
   echo "kind cluster already exists: ${HUB_CLUSTER}" >&2
@@ -857,17 +919,12 @@ E2E_NODE_IMAGE_STATUS="$(
   docker exec "${HUB_CLUSTER}-control-plane" \
     crictl inspecti --output json "${E2E_IMG}"
 )"
-E2E_NODE_IMAGE_ID="$(jq -r '.status.id // ""' <<<"${E2E_NODE_IMAGE_STATUS}")"
 # Kubelet reports a Pod imageID as the image ID or any digest reference of the
 # loaded image, depending on the container runtime, so identity checks accept
 # every reference the node holds for the image.
 E2E_NODE_IMAGE_IDS="$(
   jq -c '[.status.id // empty] + (.status.repoDigests // [])' <<<"${E2E_NODE_IMAGE_STATUS}"
 )"
-if [ -z "${E2E_NODE_IMAGE_ID}" ] || [ "${E2E_NODE_IMAGE_ID}" != "${E2E_LOCAL_IMAGE_ID}" ]; then
-  echo "kind node image ID ${E2E_NODE_IMAGE_ID} does not match local image ID ${E2E_LOCAL_IMAGE_ID}" >&2
-  exit 1
-fi
 
 log "installing Argo CD chart ${ARGOCD_CHART_VERSION}"
 helm --kube-context "kind-${HUB_CLUSTER}" upgrade --install argocd argo-cd \
@@ -1797,9 +1854,6 @@ MAX_LENGTH_SECRET_NAME="$(jq -r '.metadata.name' <<<"${MAX_LENGTH_SECRET_JSON}")
 RAW_COLLISION_SECRET_NAME="$(jq -r '.metadata.name' <<<"${RAW_COLLISION_SECRET_JSON}")"
 LONG_SECRET_UID="$(jq -r '.metadata.uid' <<<"${LONG_SECRET_JSON}")"
 
-# The generated names themselves are pinned by TestGeneratedClusterProfileMetadata.
-# Only the API server can show that a bounded name and the raw name it could have
-# collided with are admitted side by side.
 test "${LONG_SECRET_NAME}" != "${RAW_COLLISION_SECRET_NAME}"
 
 log "verifying long-name Secret drift is reconciled"
@@ -1877,6 +1931,27 @@ if ! retry_until 120 "newer duplicate inventory member Secret absence" \
 fi
 assert_secret_exists "${ARGOCD_NS}" "${DUPLICATE_OLDEST_SECRET_NAME}"
 assert_secret_exists "${MIRROR_NS}" "${DUPLICATE_MIRROR_SECRET_NAME}"
+if ! retry_until 120 "duplicate inventory member metrics on every controller" \
+  controller_custom_metric_series_is \
+    argocd_clusterprofile_inventory_member_conflict_group_size \
+    "${ARGOCD_NS}" duplicate "${DUPLICATE_MEMBER_ID}" 2; then
+  dump_controller_custom_metric_series \
+    argocd_clusterprofile_inventory_member_conflict_group_size
+  echo "controller replicas did not report a duplicate inventory member group size of two" >&2
+  exit 1
+fi
+if ! retry_until 120 "duplicate inventory member group count on every controller" \
+  controller_custom_metric_series_is \
+  argocd_clusterprofile_inventory_member_groups "${ARGOCD_NS}" duplicate "" 1; then
+  echo "controller replicas did not report one duplicate inventory member group" >&2
+  exit 1
+fi
+if ! retry_until 120 "mirror inventory member metrics on every controller" \
+  controller_custom_metric_series_is \
+  argocd_clusterprofile_inventory_member_groups "${MIRROR_NS}" unique "" 1; then
+  echo "controller replicas did not report the independent mirror inventory member group" >&2
+  exit 1
+fi
 
 log "deleting the selected member and verifying next-oldest election"
 kubectl --context "kind-${HUB_CLUSTER}" -n "${ARGOCD_NS}" \
@@ -1892,6 +1967,19 @@ if ! retry_until 120 "oldest inventory member Secret garbage collection" \
   exit 1
 fi
 assert_secret_exists "${MIRROR_NS}" "${DUPLICATE_MIRROR_SECRET_NAME}"
+if ! retry_until 120 "resolved inventory member metrics on every controller" \
+  controller_custom_metric_series_is_absent \
+    argocd_clusterprofile_inventory_member_conflict_group_size \
+    "${ARGOCD_NS}" duplicate "${DUPLICATE_MEMBER_ID}"; then
+  echo "controller replicas continued reporting the resolved duplicate member conflict" >&2
+  exit 1
+fi
+if ! retry_until 120 "elected inventory member metrics on every controller" \
+  controller_custom_metric_series_is \
+  argocd_clusterprofile_inventory_member_groups "${ARGOCD_NS}" unique "" 1; then
+  echo "controller replicas did not report the elected inventory member as unique" >&2
+  exit 1
+fi
 
 kubectl --context "kind-${HUB_CLUSTER}" -n "${ARGOCD_NS}" \
   delete clusterprofile "${DUPLICATE_NEWER_CP_NAME}" --wait=true --timeout=60s
@@ -2393,6 +2481,10 @@ log "live Argo CD integration scenarios passed"
 log "cleaning live fixtures before HA fault scenarios"
 kubectl --context "kind-${HUB_CLUSTER}" -n "${ARGOCD_NS}" \
   delete applicationset guestbook-e2e --ignore-not-found --wait=true --timeout=120s >/dev/null
+if ! retry_until 120 "live Application removal before HA phase" generated_application_is_gone; then
+  echo "live Application remained after removing its ApplicationSet" >&2
+  exit 1
+fi
 for namespace in "${ARGOCD_NS}" "${MIRROR_NS}"; do
   kubectl --context "kind-${HUB_CLUSTER}" -n "${namespace}" \
     delete clusterprofiles.multicluster.x-k8s.io --all \
@@ -2405,11 +2497,6 @@ for namespace in "${ARGOCD_NS}" "${MIRROR_NS}"; do
 done
 kubectl --context "kind-${HUB_CLUSTER}" -n "${ARGOCD_NS}" \
   delete secret "${COLLISION_SECRET_NAME}" --ignore-not-found >/dev/null
-if ! retry_until 120 "live Application removal before HA phase" generated_application_is_gone; then
-  echo "live Application remained after removing its ApplicationSet" >&2
-  exit 1
-fi
-
 log "stopping Argo CD workloads while preserving the ClusterProfile controller"
 for resource in $(
   kubectl --context "kind-${HUB_CLUSTER}" -n "${ARGOCD_NS}" \

@@ -9,10 +9,8 @@ Source code can be found here:
 
 ## Release versions
 
-The source chart uses placeholder `version` and `appVersion` values. Published
-chart artifacts are stamped from the Git tag by the release workflow. For local
-installs from this checkout, set an explicit image tag such as `main` or a
-locally built tag.
+For published and development chart versions, see the
+[Helm chart development guide](../../docs/developer-guide/helm-chart-development.md#release-versions).
 
 {{ template "chart.requirementsSection" . }}
 
@@ -21,5 +19,10 @@ locally built tag.
 Set `vpa.enabled` to create a `VerticalPodAutoscaler` for the controller
 Deployment. The cluster must already provide the `autoscaling.k8s.io/v1` CRD,
 a VPA controller, and the Metrics Server; this chart does not install them.
+
+## Monitoring
+
+For Prometheus discovery and alert configuration, see
+[Monitoring](../../docs/monitoring.md).
 
 {{ template "chart.valuesSection" . }}{{ "\n" -}}

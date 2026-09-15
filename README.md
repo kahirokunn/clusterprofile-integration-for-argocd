@@ -1,6 +1,6 @@
 # Cluster Profile Controller
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/argoproj-labs/clusterprofile-integration-for-argocd)](https://goreportcard.com/report/github.com/argoproj-labs/clusterprofile-integration-for-argocd)
 
 The [Cluster Profile API](https://multicluster.sigs.k8s.io/concepts/cluster-profile-api/) provides a standard way to describe and manage clusters. The Cluster Profile controller allows automatic registration of clusters from `ClusterProfile` resources in Argo CD by creating and managing `Secret`s corresponding to `ClusterProfile`s. This avoids having to manually register and unregister these clusters with Argo CD, and notably when using a cluster manager that generates and syncs `ClusterProfile` resources.
@@ -128,9 +128,15 @@ component already owns it.
 
 The bundled Helm and Kustomize deployments enable leader election. For high availability, set Helm's `replicaCount` to at least 2 or use a Kustomize overlay to run multiple controller replicas.
 
-The Helm chart can create a `VerticalPodAutoscaler` when `vpa.enabled` is true. The cluster must already provide the `autoscaling.k8s.io/v1` CRD, a VPA controller, and the Metrics Server.
+For Vertical Pod Autoscaler configuration and prerequisites, see the
+[Helm chart documentation](charts/argocd-clusterprofile-controller/README.md#vertical-pod-autoscaler).
 
 Every namespace watched for `ClusterProfile`s is also a namespace where the controller writes `Secret`s. The Helm chart creates a `Role` in each configured namespace, or a `ClusterRole` when watching all namespaces. Wildcard mode therefore grants the controller read and write access to every `Secret` in the cluster. Prefer an explicit namespace list unless cluster-wide watching is required. The Kustomize manifests grant cluster-wide `Secret` access to support `--cluster-profile-namespaces='*'`.
+
+### Monitoring
+
+The controller exposes Prometheus metrics. See [Monitoring](docs/monitoring.md)
+for available metrics, alert examples, and configuration.
 
 ### Configuration parameters
 
