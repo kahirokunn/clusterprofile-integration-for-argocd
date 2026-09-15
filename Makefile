@@ -6,6 +6,13 @@ IMAGE_MULTIARCH_PLATFORMS?=linux/amd64,linux/arm64
 IMAGE_TAG?=latest
 IMG ?= $(IMAGE_REPOSITORY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
+# Controller build metadata
+VERSION ?= dev
+GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_LDFLAGS = -X 'main.version=$(VERSION)' -X 'main.gitCommit=$(GIT_COMMIT)' -X 'main.buildDate=$(BUILD_DATE)'
+DOCKER_BUILD_ARGS = --build-arg VERSION="$(VERSION)" --build-arg GIT_COMMIT="$(GIT_COMMIT)" --build-arg BUILD_DATE="$(BUILD_DATE)"
+
 # E2E settings
 E2E_INSTALL_METHOD?=helm
 
@@ -81,15 +88,15 @@ e2e: ## Run full live and multi-node HA kind-based e2e tests.
 
 .PHONY: build
 build: fmt vet ## Build manager binary.
-	go build -o bin/manager main.go controller.go
+	go build -ldflags "$(BUILD_LDFLAGS)" -o bin/manager main.go controller.go
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run main.go controller.go
+	go run -ldflags "$(BUILD_LDFLAGS)" main.go controller.go
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
+	docker build $(DOCKER_BUILD_ARGS) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -99,11 +106,11 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: image
 image: ## Build single-arch container image.
-	docker build --platform $(IMAGE_PLATFORM) -t $(IMG) .
+	docker build $(DOCKER_BUILD_ARGS) --platform $(IMAGE_PLATFORM) -t $(IMG) .
 
 .PHONY: image-multiarch
 image-multiarch: ## Build and push multi-arch container image.
-	docker buildx build --platform $(IMAGE_MULTIARCH_PLATFORMS) --push -t $(IMG) .
+	docker buildx build $(DOCKER_BUILD_ARGS) --platform $(IMAGE_MULTIARCH_PLATFORMS) --push -t $(IMG) .
 
 .PHONY: push-image
 push-image: ## Push single-arch container image.

@@ -26,6 +26,13 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         persist-credentials: false
+    - name: Set build metadata
+      id: build-metadata
+      run: |
+        {
+          echo "git_commit=$(git rev-parse HEAD)"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        } >> "${GITHUB_OUTPUT}"
     - name: Setup QEMU
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
     - name: Set up Docker Buildx
@@ -36,6 +43,10 @@ jobs:
         context: .
         platforms: linux/amd64
         push: false
+        build-args: |
+          VERSION=${{ github.event_name == 'push' && 'main' || 'dev' }}
+          GIT_COMMIT=${{ steps.build-metadata.outputs.git_commit }}
+          BUILD_DATE=${{ steps.build-metadata.outputs.build_date }}
 
   push:
     name: Publish image and Helm chart
@@ -51,6 +62,13 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         persist-credentials: false
+    - name: Set build metadata
+      id: build-metadata
+      run: |
+        {
+          echo "git_commit=$(git rev-parse HEAD)"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        } >> "${GITHUB_OUTPUT}"
     - name: Setup QEMU
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
     - name: Set up Docker Buildx
@@ -68,6 +86,10 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
+        build-args: |
+          VERSION=main
+          GIT_COMMIT=${{ steps.build-metadata.outputs.git_commit }}
+          BUILD_DATE=${{ steps.build-metadata.outputs.build_date }}
         tags: |
           ghcr.io/${{ github.repository }}:${{ github.sha }}
           ghcr.io/${{ github.repository }}:main

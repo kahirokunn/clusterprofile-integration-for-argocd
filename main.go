@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	goruntime "runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -40,6 +41,24 @@ const (
 	// allNamespacesSentinel ("*") mirrors Argo CD's --application-namespaces and requests a cluster-wide watch.
 	allNamespacesSentinel = "*"
 )
+
+// Build metadata is populated by Go linker flags in the image and Makefile builds.
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildDate = "unknown"
+)
+
+func controllerVersion() common.Version {
+	return common.Version{
+		Version:   version,
+		GitCommit: gitCommit,
+		BuildDate: buildDate,
+		GoVersion: goruntime.Version(),
+		Compiler:  goruntime.Compiler,
+		Platform:  goruntime.GOOS + "/" + goruntime.GOARCH,
+	}
+}
 
 type cacheSyncReadiness struct {
 	ready atomic.Bool
@@ -85,7 +104,7 @@ func buildRESTConfig(clientConfig clientcmd.ClientConfig) (*rest.Config, error) 
 		return nil, err
 	}
 
-	vers := common.GetVersion()
+	vers := controllerVersion()
 	restConfig.UserAgent = fmt.Sprintf("%s/%s (%s)", cliName, vers.Version, vers.Platform)
 	if err := appv1alpha1.SetK8SConfigDefaults(restConfig); err != nil {
 		return nil, err
@@ -114,7 +133,7 @@ func NewCommand() *cobra.Command {
 		Short:             "Starts Argo CD Cluster Profile Controller",
 		DisableAutoGenTag: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			vers := common.GetVersion()
+			vers := controllerVersion()
 			namespace, _, err := clientConfig.Namespace()
 			errors.CheckError(err)
 

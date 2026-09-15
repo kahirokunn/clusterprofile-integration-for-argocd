@@ -12,7 +12,12 @@ RUN go mod download
 COPY main.go main.go
 COPY controller.go controller.go
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o manager main.go controller.go
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a \
+    -ldflags="-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}" \
+    -o manager main.go controller.go
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /

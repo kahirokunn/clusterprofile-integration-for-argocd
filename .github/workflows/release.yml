@@ -80,6 +80,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set build metadata
+        id: build-metadata
+        run: |
+          {
+            echo "git_commit=$(git rev-parse HEAD)"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
@@ -100,6 +108,10 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ needs.setup-variables.outputs.release_tag }}
+            GIT_COMMIT=${{ steps.build-metadata.outputs.git_commit }}
+            BUILD_DATE=${{ steps.build-metadata.outputs.build_date }}
           tags: ${{ needs.setup-variables.outputs.image_tags }}
 
       - name: Install cosign
